@@ -1,12 +1,7 @@
-from huggingface_hub import InferenceClient
-from dotenv import load_dotenv
-import os
-load_dotenv('/workspaces/Night-owl/backend/.env')
-HF_KEY=os.getenv('HF_KEY')
-try:
-    client_tg= InferenceClient(model="meta-llama/Meta-Llama-3-8B-Instruct", token=HF_KEY)
-except Exception as e:
-    print("Text_Generation Model not loaded")
+from transformers import pipeline
 
-print("Text_Generation model loaded successfully")
+generator = pipeline('text-generation', model='gpt2')
 
+
+output = generator("Hello, I'm a language model", max_length=30, num_return_sequences=1)
+print(output[0]['generated_text']) 
