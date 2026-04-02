@@ -1,0 +1,7 @@
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+  File "D:\Interviewwww\python_backend\main.py", line 6, in <module>
+    from pinecone import Pinecone, ServerlessSpec
+  File "C:\Users\wwwra\AppData\Local\Programs\Python\Python312\Lib\site-packages\pinecone\__init__.py", line 5, in <module>
+    raise Exception(
+Exception: The official Pinecone python package has been renamed from `pinecone-client` to `pinecone`. Please remove `pinecone-client` from your project dependencies and add `pinecone` instead. See the README at https://github.com/pinecone-io/pinecone-python-client for more information on using the python SDK.

@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+pinecone
+sentence-transformers
+transformers
+huggingface_hub
+tavily-python
+pydantic
+python-dotenv
+torch
+lmppl
+langgraph
+openai

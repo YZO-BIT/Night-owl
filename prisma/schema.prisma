@@ -1,0 +1,106 @@
+generator client {
+  provider = "prisma-client-js"
+  engineType = "binary"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String?  @unique
+  name      String?
+  passwordHash String?
+  topic     String?
+  progress  Int      @default(0)
+  scores    Score[]
+
+  sessions        Session[]
+  interviewSessions InterviewSession[]
+  oaSessions      OASession[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Stage {
+  id         String @id @default(uuid())
+  title      String
+  objectives String
+  difficulty String
+  orderId    Int
+}
+
+model Score {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  score     Int
+  passed    Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model Session {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+  revokedAt DateTime?
+  userAgent String?
+  ip        String?
+}
+
+model InterviewSession {
+  id        String   @id @default(uuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  status    String   @default("active")
+  messages  Json     @default("[]")
+
+  createdAt DateTime @default(now())
+  endedAt   DateTime?
+
+  proctorEvents ProctorEvent[]
+}
+
+model OASession {
+  id        String   @id @default(uuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  topic     String?
+  question  String?
+  answer    String?
+
+  evaluation       String?
+  evaluationScore  Int?
+  perplexityScore  Float?
+  isCheating       Boolean?
+
+  status    String   @default("active")
+  createdAt DateTime @default(now())
+  endedAt   DateTime?
+
+  proctorEvents ProctorEvent[]
+}
+
+model ProctorEvent {
+  id        String   @id @default(uuid())
+  kind      String
+  payload   Json
+  createdAt DateTime @default(now())
+
+  oaSessionId       String?
+  oaSession         OASession?       @relation(fields: [oaSessionId], references: [id], onDelete: Cascade)
+
+  interviewSessionId String?
+  interviewSession   InterviewSession? @relation(fields: [interviewSessionId], references: [id], onDelete: Cascade)
+
+  @@index([oaSessionId])
+  @@index([interviewSessionId])
+}
