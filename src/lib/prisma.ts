@@ -74,7 +74,9 @@ function createPrismaClient() {
 
   const url = new URL(databaseUrl);
   const sslmode = url.searchParams.get("sslmode");
-  const needsSsl = sslmode && sslmode !== "disable";
+  const hostname = url.hostname.toLowerCase();
+  const isLocalHost = hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+  const needsSsl = sslmode ? sslmode !== "disable" : !isLocalHost;
 
   // Don't pass sslmode through to `pg` connection-string parsing; it can force strict verification.
   // We control TLS via the explicit Pool `ssl` option below.
