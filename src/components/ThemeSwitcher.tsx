@@ -57,7 +57,7 @@ export default function ThemeSwitcher() {
   };
 
   return (
-    <div className="fixed right-4 top-4 z-[100]">
+    <div className="fixed bottom-4 right-4 z-[70]">
       <label className="glass-panel theme-control flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium shadow-lg">
         Theme
         <select

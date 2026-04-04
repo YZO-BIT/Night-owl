@@ -21,6 +21,10 @@ model User {
   oaSessions      OASession[]
   todoSubjects    TodoSubject[]
 
+  threads         Thread[]
+  replies         Reply[]
+  votes           Vote[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -119,4 +123,67 @@ model ProctorEvent {
 
   @@index([oaSessionId])
   @@index([interviewSessionId])
+}
+
+model Problem {
+  id          String   @id @default(uuid())
+  title       String
+  description String
+  difficulty  String   @default("Medium")
+  tags        String[] @default([])
+  threads     Thread[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Thread {
+  id        String   @id @default(uuid())
+  title     String
+  content   String
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  problemId String
+  problem   Problem  @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  upvotes   Int      @default(0)
+  downvotes Int      @default(0)
+  replies   Reply[]
+  votes     Vote[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([problemId])
+  @@index([userId])
+}
+
+model Reply {
+  id        String   @id @default(uuid())
+  content   String
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  threadId  String
+  thread    Thread   @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  upvotes   Int      @default(0)
+  downvotes Int      @default(0)
+  votes     Vote[]
+  createdAt DateTime @default(now())
+
+  @@index([threadId])
+  @@index([userId])
+}
+
+model Vote {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  value     Int
+  threadId  String?
+  thread    Thread?  @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  replyId   String?
+  reply     Reply?   @relation(fields: [replyId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, threadId])
+  @@unique([userId, replyId])
+  @@index([threadId])
+  @@index([replyId])
 }

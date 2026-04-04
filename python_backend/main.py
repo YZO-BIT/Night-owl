@@ -184,6 +184,20 @@ print("[STARTUP] Initial garbage collection pass completed")
 # LANGGRAPH ORCHESTRATION PIPELINE
 # ================================
 
+class InterviewState(TypedDict, total=False):
+    audio_path: Optional[str]
+    transcript: str
+    search_results: str
+    rag_context: str
+    llm_response: str
+    critique: str
+    revision_count: int
+    tts_audio_path: Optional[str]
+    final_response: str
+    mode: Optional[str]
+    topic: Optional[str]
+    session_id: Optional[str]
+
 def stt_node(state: dict) -> dict:
     print("[LangGraph] Executing STT...")
     return {"transcript": state.get("transcript", "Mock transcribed text of user's voice.")}
@@ -233,6 +247,7 @@ def llm_node(state: dict) -> dict:
     search_context = (state.get("search_results") or "")
     rag_context = (state.get("rag_context") or "")
     transcript = (state.get("transcript") or "")
+    critique = (state.get("critique") or "").strip()
 
     # Keep contexts small to reduce latency and hallucinations
     search_context = str(search_context)[:1200]
@@ -249,8 +264,10 @@ def llm_node(state: dict) -> dict:
 
     user_prompt = (
         f"Topic: {topic or 'General'}\n\n"
+        f"Search context:\n{search_context}\n\n"
         f"Study context (RAG):\n{rag_context}\n\n"
         f"Candidate last answer:\n{transcript}\n\n"
+        f"Verifier critique (if any):\n{critique or 'None'}\n\n"
         "Task: Ask the next interview question.\n"
         "Output rules: Output ONLY the question text. No labels, no bullets, no extra commentary."
     )
@@ -261,22 +278,69 @@ def llm_node(state: dict) -> dict:
         response = "I see. Could you elaborate slightly?"
     return {"llm_response": response}
 
+
+def critic_node(state: dict) -> dict:
+    print("[LangGraph] Executing Critic (Verification)...")
+    response = (state.get("llm_response") or "").strip()
+    context = (
+        f"Search context:\n{state.get('search_results', '')}\n\n"
+        f"RAG context:\n{state.get('rag_context', '')}"
+    ).strip()
+
+    system_prompt = (
+        "You are a strict factual verifier for interview prompts. "
+        "Check whether the AI question is fully supported by the provided context. "
+        "If grounded, output only ACCURATE. "
+        "If not grounded, output CRITIQUE: and list unsupported parts briefly."
+    )
+    user_prompt = (
+        f"Context:\n{context}\n\n"
+        f"AI Response:\n{response}\n\n"
+        "Does the response contain information not supported by context?"
+    )
+
+    critique = generate_chat(system_prompt, user_prompt, 100).strip()
+    if not critique:
+        critique = "CRITIQUE: Empty verifier output."
+
+    return {
+        "critique": critique,
+        "revision_count": int(state.get("revision_count", 0)) + 1,
+    }
+
+
+def should_continue(state: dict) -> str:
+    critique = (state.get("critique") or "").upper()
+    revision_count = int(state.get("revision_count", 0))
+    if "ACCURATE" in critique or revision_count >= 3:
+        return "tts"
+    return "llm"
+
 def tts_node(state: dict) -> dict:
     print("[LangGraph] Executing TTS...")
     return {"tts_audio_path": "/tmp/mock_tts_output.mp3", "final_response": state.get("llm_response")}
 
 def build_graph():
-    g = StateGraph(dict)
+    g = StateGraph(InterviewState)
     g.add_node("stt", stt_node)
     g.add_node("search", search_node)
     g.add_node("rag", rag_node)
     g.add_node("llm", llm_node)
+    g.add_node("critic", critic_node)
     g.add_node("tts", tts_node)
     g.set_entry_point("stt")
     g.add_edge("stt", "search")
     g.add_edge("search", "rag")
     g.add_edge("rag", "llm")
-    g.add_edge("llm", "tts")
+    g.add_edge("llm", "critic")
+    g.add_conditional_edges(
+        "critic",
+        should_continue,
+        {
+            "llm": "llm",
+            "tts": "tts",
+        },
+    )
     g.set_finish_point("tts")
     return g.compile()
 
@@ -300,6 +364,8 @@ def execute_interview_cycle(payload: InterviewPayload):
             "mode": payload.mode,
             "topic": payload.topic,
             "session_id": payload.session_id,
+            "critique": "",
+            "revision_count": 0,
         }
         final_state = interview_graph.invoke(initial_state)
         result = {"response_text": final_state.get("final_response", ""), "audio_url": final_state.get("tts_audio_path", "")}
@@ -350,7 +416,7 @@ def generate_text(payload: GeneratePayload):
             "Do not change the requested topic or programming language. "
             "If the user asks for a numbered list with an exact count, comply exactly."
         )
-        generated = generate_chat(system_prompt, payload.prompt, 240)
+        generated = generate_chat(system_prompt, payload.prompt, 4096)
         return {"generated_text": generated}
     except Exception as e:
         print("GENERATE ERROR:", e)

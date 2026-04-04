@@ -19,14 +19,15 @@
     "clsx": "^2.1.1",
     "framer-motion": "^12.38.0",
     "lucide-react": "^1.7.0",
+    "mammoth": "^1.7.2",
     "next": "16.2.2",
     "openai": "^6.33.0",
     "pg": "^8.20.0",
     "prisma": "^7.6.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
+    "redis": "^5.11.0",
     "tailwind-merge": "^3.5.0",
-    "mammoth": "^1.7.2",
     "youtube-transcript": "^1.2.1"
   },
   "devDependencies": {

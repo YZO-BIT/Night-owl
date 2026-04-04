@@ -22,8 +22,16 @@ type EvaluationFeedback = {
   error?: string;
 };
 
+type QuizItem = {
+  id: string;
+  type: "mcq" | "descriptive";
+  question: string;
+  options?: string[];
+};
+
 type QuizPayload = {
   quiz?: string;
+  quizItems?: QuizItem[];
   followUps?: string[];
   optimizationHint?: string;
   mode?: string;
@@ -124,6 +132,8 @@ export default function StageView() {
   }, [storedTopic, stageTitle]);
   const [activeTab, setActiveTab] = useState<"learn" | "practice">("learn");
   const [quizQuestion, setQuizQuestion] = useState("");
+  const [quizItems, setQuizItems] = useState<QuizItem[]>([]);
+  const [answersMap, setAnswersMap] = useState<Record<string, string>>({});
   const [answer, setAnswer] = useState("");
   const [loadingQuiz, setLoadingQuiz] = useState(false);
   const [evaluating, setEvaluating] = useState(false);
@@ -177,6 +187,8 @@ export default function StageView() {
       });
       const data = (await res.json()) as QuizPayload;
       setQuizQuestion(data.quiz || "What are the core principles of this topic?");
+      setQuizItems(data.quizItems || []);
+      setAnswersMap({});
       setFollowUps(Array.isArray(data.followUps) ? data.followUps.filter((x) => typeof x === "string") : []);
       setOptimizationHint(typeof data.optimizationHint === "string" ? data.optimizationHint : "");
       setPracticeModeLabel(typeof data.mode === "string" ? data.mode : (isPeriodicAssessment ? "Retention checkpoint" : "Practice session"));
@@ -199,13 +211,18 @@ export default function StageView() {
   };
 
   const handleEvaluate = async () => {
-    if (!answer.trim()) return;
+    let serializedAnswers = answer;
+    if (quizItems && quizItems.length > 0) {
+        serializedAnswers = quizItems.map(q => `Q: ${q.question}\nA: ${answersMap[q.id] || "No answer provided."}`).join("\n\n");
+    }
+
+    if (!serializedAnswers.trim()) return;
     setEvaluating(true);
     try {
       const res = await fetch("/api/evaluate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ answers: answer, context: quizQuestion, sessionId: oaSessionId })
+        body: JSON.stringify({ answers: serializedAnswers, context: quizQuestion, sessionId: oaSessionIdRef.current })
       });
       const data = await res.json();
       setFeedback(data);
@@ -367,7 +384,7 @@ export default function StageView() {
   }, [selectedLevel, stageBand, effectiveTopic, sessionNumber, isPeriodicAssessment]);
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f] text-slate-100 overflow-x-hidden selection:bg-cyan-500/30">
+    <div className="min-h-screen bg-[hsl(var(--background))] text-[hsl(var(--foreground))] overflow-x-hidden selection:bg-cyan-500/30">
       {/* Background ambient light */}
       <div className="fixed top-0 left-1/2 -translate-x-1/2 w-3/4 h-[400px] bg-cyan-900/10 blur-[120px] rounded-full pointer-events-none" />
 
@@ -394,7 +411,7 @@ export default function StageView() {
                 {selectedLevel} • {stageBand}
               </span>
             </div>
-            <h1 className="text-5xl md:text-6xl font-extrabold bg-gradient-to-br from-white to-slate-400 bg-clip-text text-transparent">
+            <h1 className="text-5xl md:text-6xl font-extrabold bg-gradient-to-br from-slate-900 to-slate-600 dark:from-white dark:to-slate-400 bg-clip-text text-transparent">
               {stageTitle}
             </h1>
             <p className="text-slate-400 mt-4 text-xl">Master the essential building blocks to advance.</p>
@@ -603,9 +620,43 @@ export default function StageView() {
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      <div className="text-xl md:text-2xl text-slate-200 leading-relaxed bg-black/40 p-8 border border-white/5 rounded-2xl">
-                        {quizQuestion}
-                      </div>
+                      {quizItems && quizItems.length > 0 ? (
+                        <div className="space-y-8">
+                          {quizItems.map((item) => (
+                            <div key={item.id} className="text-xl text-slate-200 leading-relaxed bg-black/40 p-8 border border-white/5 rounded-2xl">
+                              <p className="mb-4 whitespace-pre-wrap">{item.question}</p>
+                              {item.type === "mcq" && item.options ? (
+                                <div className="flex flex-col gap-3 mt-6">
+                                  {item.options.map((opt, i) => (
+                                    <label key={i} className="flex items-start gap-4 cursor-pointer p-4 rounded-xl border border-white/10 hover:bg-white/5 transition-colors">
+                                      <input 
+                                        type="radio" 
+                                        name={item.id} 
+                                        value={opt} 
+                                        checked={answersMap[item.id] === opt} 
+                                        onChange={() => setAnswersMap(prev => ({ ...prev, [item.id]: opt }))}
+                                        className="mt-1.5 w-5 h-5 text-cyan-500 bg-black/50 border-white/20 focus:ring-cyan-500 focus:ring-offset-gray-900"
+                                      />
+                                      <span className="text-lg text-slate-300">{opt}</span>
+                                    </label>
+                                  ))}
+                                </div>
+                              ) : (
+                                <textarea
+                                  value={answersMap[item.id] || ""}
+                                  onChange={(e) => setAnswersMap(prev => ({ ...prev, [item.id]: e.target.value }))}
+                                  placeholder="Type your descriptive answer here..."
+                                  className="w-full mt-4 h-32 p-6 bg-black/20 border border-white/10 rounded-xl text-slate-200 focus:ring-1 focus:ring-cyan-500 outline-none resize-none font-mono"
+                                />
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-xl md:text-2xl text-slate-200 leading-relaxed bg-black/40 p-8 border border-white/5 rounded-2xl whitespace-pre-wrap">
+                          {quizQuestion}
+                        </div>
+                      )}
                       {followUps.length > 0 ? (
                         <div className="rounded-2xl border border-white/10 bg-black/20 p-5">
                           <p className="text-xs uppercase tracking-widest text-slate-400 font-bold mb-3">Follow-up Questions</p>
@@ -626,17 +677,19 @@ export default function StageView() {
                     Microphone not working? Continue with text-based practice here. Your answer will still be assessed and tracked.
                   </div>
 
-                  <textarea
-                    value={answer}
-                    onChange={(e) => setAnswer(e.target.value)}
-                    placeholder="Type your detailed answer here... (Anti-cheat is actively monitoring)"
-                    className="w-full h-56 bg-black/40 border border-white/10 rounded-2xl p-8 text-slate-200 focus:outline-none focus:ring-1 focus:ring-cyan-500/50 resize-none font-mono text-base leading-relaxed"
-                  />
+                  {(!quizItems || quizItems.length === 0) && (
+                    <textarea
+                      value={answer}
+                      onChange={(e) => setAnswer(e.target.value)}
+                      placeholder="Type your detailed answer here... (Anti-cheat is actively monitoring)"
+                      className="w-full h-56 bg-black/40 border border-white/10 rounded-2xl p-8 text-slate-200 focus:outline-none focus:ring-1 focus:ring-cyan-500/50 resize-none font-mono text-base leading-relaxed"
+                    />
+                  )}
 
                   <div className="flex justify-end">
                     <button
                       onClick={handleEvaluate}
-                      disabled={evaluating || !answer.trim()}
+                      disabled={evaluating || (!answer.trim() && Object.keys(answersMap).length === 0)}
                       className="bg-gradient-to-r from-cyan-600 to-indigo-600 text-white font-bold py-5 px-12 text-lg rounded-xl shadow-[0_0_20px_rgba(6,182,212,0.4)] transform transition hover:scale-105 active:scale-95 disabled:opacity-50 flex items-center gap-3"
                     >
                       {evaluating ? "Evaluating Context..." : "Submit Answer"}
@@ -662,8 +715,59 @@ export default function StageView() {
                       {feedback.isCheating ? "AI Generation / Anomaly Detected" : "Human Response Validated"}
                     </h3>
                     
-                    <div className="text-slate-300 font-medium leading-relaxed">
-                      <p>{feedback.evaluation || feedback.error || "No evaluation returned."}</p>
+                    <div className="flex flex-col md:flex-row gap-8 items-start">
+                      {typeof feedback.evaluationScore === "number" && (
+                        <div className="relative flex-shrink-0 flex items-center justify-center w-32 h-32 bg-black/40 rounded-full border border-white/5 shadow-inner">
+                          <svg height="120" width="120" className="transform -rotate-90">
+                            <circle
+                              stroke="rgba(255,255,255,0.1)"
+                              fill="transparent"
+                              strokeWidth="8"
+                              r="50"
+                              cx="60"
+                              cy="60"
+                            />
+                            <circle
+                              stroke={feedback.evaluationScore > 75 ? "#10b981" : feedback.evaluationScore > 50 ? "#eab308" : "#ef4444"}
+                              fill="transparent"
+                              strokeWidth="8"
+                              strokeLinecap="round"
+                              strokeDasharray={314.159}
+                              strokeDashoffset={314.159 - (feedback.evaluationScore / 100) * 314.159}
+                              r="50"
+                              cx="60"
+                              cy="60"
+                              className="transition-all duration-1000 ease-out"
+                            />
+                          </svg>
+                          <div className="absolute inset-0 flex flex-col items-center justify-center">
+                            <span className="text-3xl font-black text-white">{feedback.evaluationScore}</span>
+                            <span className="text-[10px] uppercase tracking-widest text-slate-400 font-bold">Score</span>
+                          </div>
+                        </div>
+                      )}
+                      
+                      <div className="text-slate-300 font-medium leading-relaxed flex-1 bg-black/20 p-6 rounded-2xl border border-white/5">
+                        <div className="space-y-2">
+                          {(feedback.evaluation || feedback.error || "No evaluation returned.").split('\n').map((line, i) => {
+                            const trimmed = line.trim();
+                            if (!trimmed) return null;
+                            if (trimmed.includes('What is Correct:') || trimmed.includes('Correct:')) {
+                              return <p key={i} className="text-emerald-400 font-semibold mt-4">{line}</p>;
+                            }
+                            if (trimmed.includes('What is Wrong') || trimmed.includes('Wrong/Missing:')) {
+                              return <p key={i} className="text-red-400 font-semibold mt-4">{line}</p>;
+                            }
+                            if (trimmed.includes('Score:')) {
+                              return <p key={i} className="text-cyan-400 font-bold text-lg mb-2">{line}</p>;
+                            }
+                            if (trimmed.startsWith('-')) {
+                              return <p key={i} className="pl-4 border-l-2 border-white/10 my-1 text-slate-400">{line}</p>;
+                            }
+                            return <p key={i} className="text-slate-300">{line}</p>;
+                          })}
+                        </div>
+                      </div>
                     </div>
                     
                     {feedback.isCheating && (

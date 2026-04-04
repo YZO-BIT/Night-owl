@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { addLeaderboardXp } from '@/lib/leaderboard';
 
 type PerplexityResponse = {
   scores?: Array<[string, number]> | Array<[string, string | number]>;
@@ -54,13 +55,14 @@ export async function POST(req: Request) {
     // 2. Response Evaluation (using generated text from Python backend)
     const prompt = [
       `Context: ${context}`,
-      `Answer: ${answers}`,
-      'Return a short, structured evaluation with:',
-      '- score (0-100)',
-      '- what is correct (1-3 bullets)',
-      '- what is wrong/missing (1-5 bullets)',
-      '- the corrected answer (concise)',
-      '- next steps to improve (1-3 bullets)',
+      `User's Answer Summary: ${answers}`,
+      'You are grading a quiz consisting of multiple questions (MCQs and Descriptive tasks).',
+      'Return a strict, structured evaluation of the answers above, providing individual feedback per question. You MUST include:',
+      '- Score: a single number out of 100 on the first line (e.g. Score: 85)',
+      '- What is Correct: Explicitly state why the selected MCQ options or descriptive statements were right.',
+      '- What is Wrong/Missing: If an MCQ is wrong, provide the correct option and explain why. If a descriptive answer is lacking, explain what was missed.',
+      '- Overall Concept Summary: Brief correct overview.',
+      '- Next steps to improve: 1-3 bullet points.',
       'Evaluation:'
     ].join('\n');
     const evalRes = await fetch("http://127.0.0.1:8000/api/generate", {
@@ -80,7 +82,17 @@ export async function POST(req: Request) {
     const scoreMatch = evaluation.match(/\bscore\b\s*[:=-]?\s*(\d{1,3})/i);
     const evaluationScore = scoreMatch ? Math.min(100, Math.max(0, Number(scoreMatch[1]))) : null;
 
+    let oaUserId: string | null = null;
+    let oaTopic: string | null = null;
+
     if (typeof sessionId === 'string' && sessionId) {
+      const existing = await prisma.oASession.findUnique({
+        where: { id: sessionId },
+        select: { userId: true, topic: true },
+      });
+      oaUserId = existing?.userId ?? null;
+      oaTopic = existing?.topic ?? null;
+
       await prisma.oASession.update({
         where: { id: sessionId },
         data: {
@@ -105,6 +117,15 @@ export async function POST(req: Request) {
           oaSessionId: sessionId,
         },
       });
+    }
+
+    if (!isCheating && oaUserId && evaluationScore !== null) {
+      const gain = Math.max(5, Math.round(evaluationScore / 5));
+      try {
+        await addLeaderboardXp({ userId: oaUserId, delta: gain, subject: oaTopic || null });
+      } catch {
+        // Best-effort leaderboard update.
+      }
     }
 
     return NextResponse.json({

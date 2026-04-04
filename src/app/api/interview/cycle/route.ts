@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { buildInterviewSummary, type InterviewMessage } from "@/lib/interviewSummary";
+import { addLeaderboardXp } from "@/lib/leaderboard";
 
 type Body = {
   sessionId?: unknown;
@@ -145,6 +146,15 @@ export async function POST(req: Request) {
     } as InterviewMessage);
 
     await prisma.interviewSession.update({ where: { id: sessionId }, data: { messages: nextMessages } });
+
+    if (!warmup && existing.userId) {
+      try {
+        await addLeaderboardXp({ userId: existing.userId, delta: 3, subject: topic || null });
+      } catch {
+        // Best-effort leaderboard update.
+      }
+    }
+
     const summary = buildInterviewSummary(nextMessages, topic || undefined, {
       targetQuestions: totalQuestions,
     });

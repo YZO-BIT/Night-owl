@@ -29,6 +29,23 @@ function normalizeTranscript(input: string): string {
   return /[.!?]$/.test(capitalized) ? capitalized : `${capitalized}.`;
 }
 
+function mergeTranscript(previous: string, incoming: string): string {
+  const prev = (previous || "").replace(/\s+/g, " ").trim();
+  const next = (incoming || "").replace(/\s+/g, " ").trim();
+  if (!next) return prev;
+  if (!prev) return next;
+  if (prev === next || prev.includes(next)) return prev;
+
+  const maxOverlap = Math.min(prev.length, next.length);
+  for (let overlap = maxOverlap; overlap >= 12; overlap -= 1) {
+    if (prev.slice(-overlap).toLowerCase() === next.slice(0, overlap).toLowerCase()) {
+      return `${prev}${next.slice(overlap)}`.replace(/\s+/g, " ").trim();
+    }
+  }
+
+  return `${prev} ${next}`.replace(/\s+/g, " ").trim();
+}
+
 async function typeInto(
   fullText: string,
   onChunk: (text: string) => void,
@@ -109,6 +126,7 @@ export default function InterviewPage() {
   const sttQueuedRef = useRef(false);
   const sttCooldownUntilRef = useRef<number>(0);
   const recorderMimeTypeRef = useRef<string>("audio/webm");
+  const lastLiveChunkTranscriptRef = useRef<string>("");
   const lastSpeechAtRef = useRef<number>(0);
   const lastPresencePromptAtRef = useRef<number>(0);
   const suppressStopProcessingRef = useRef(false);
@@ -594,10 +612,15 @@ export default function InterviewPage() {
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
       liveTranscriptRef.current = "";
+      lastLiveChunkTranscriptRef.current = "";
       setSttStatus("listening");
 
-      const transcribeChunk = async (blob: Blob) => {
-        if (!blob || blob.size < 4_000) return;
+      const transcribeChunk = async () => {
+        if (audioChunksRef.current.length === 0) return;
+        const rolling = audioChunksRef.current.slice(-3);
+        const blob = new Blob(rolling, { type: recorderMimeTypeRef.current || "audio/webm" });
+        if (!blob || blob.size < 8_000) return;
+
         const now = Date.now();
         if (now < sttCooldownUntilRef.current) return;
         if (sttInFlightRef.current) {
@@ -608,13 +631,19 @@ export default function InterviewPage() {
         sttInFlightRef.current = true;
         try {
           setSttStatus("transcribing");
-          const t = await transcribeBlob(blob);
+          const t = normalizeTranscript(await transcribeBlob(blob));
           if (!t) {
             setSttStatus("listening");
             return;
           }
 
-          liveTranscriptRef.current = `${liveTranscriptRef.current} ${t}`.replace(/\s+/g, " ").trim();
+          if (t === lastLiveChunkTranscriptRef.current) {
+            setSttStatus("listening");
+            return;
+          }
+
+          lastLiveChunkTranscriptRef.current = t;
+          liveTranscriptRef.current = mergeTranscript(liveTranscriptRef.current, t);
           setMockTranscript(liveTranscriptRef.current);
           lastSpeechAtRef.current = Date.now();
           setSttStatus("listening");
@@ -636,9 +665,7 @@ export default function InterviewPage() {
           sttInFlightRef.current = false;
           if (sttQueuedRef.current) {
             sttQueuedRef.current = false;
-            // Best-effort: transcribe the latest chunk in the buffer
-            const last = audioChunksRef.current[audioChunksRef.current.length - 1];
-            if (last) void transcribeChunk(last);
+            void transcribeChunk();
           }
         }
       };
@@ -648,7 +675,7 @@ export default function InterviewPage() {
         if (audioChunksRef.current.length > MAX_AUDIO_CHUNKS) {
           audioChunksRef.current = audioChunksRef.current.slice(-MAX_AUDIO_CHUNKS);
         }
-        void transcribeChunk(e.data);
+        void transcribeChunk();
       };
 
       mediaRecorder.onstop = async () => {
@@ -685,8 +712,11 @@ export default function InterviewPage() {
         const normalized = normalizeTranscript(bestTranscript);
         if (normalized) {
           liveTranscriptRef.current = "";
+          lastLiveChunkTranscriptRef.current = "";
           setMockTranscript("");
           await processAudioMock(normalized);
+        } else if (completeBlob.size >= 6_000) {
+          setSessionError("Could not transcribe speech. Try speaking a bit slower and closer to your microphone.");
         }
       };
 
@@ -849,7 +879,7 @@ export default function InterviewPage() {
   }, [sessionId, isRecording, isProcessing, isTypingReply, sessionEnding]);
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f] text-slate-100 overflow-x-hidden selection:bg-indigo-500/30 font-sans flex flex-col">
+    <div className="min-h-screen bg-[hsl(var(--background))] text-[hsl(var(--foreground))] overflow-x-hidden selection:bg-indigo-500/30 font-sans flex flex-col">
       {/* Dynamic Background */}
       <div className="fixed inset-0 pointer-events-none z-0">
         <div className="absolute top-1/4 -right-1/4 w-[600px] h-[600px] bg-indigo-900/10 blur-[120px] rounded-full mix-blend-screen" />
@@ -859,7 +889,7 @@ export default function InterviewPage() {
       <nav className="relative z-50 flex items-center justify-between p-6 px-12 backdrop-blur-md border-b border-white/5">
         <div onClick={() => router.push('/')} className="flex items-center gap-3 cursor-pointer group">
           <ArrowLeft className="w-6 h-6 text-slate-400 group-hover:-translate-x-1 transition-transform" />
-          <span className="text-2xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">
+          <span className="text-2xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-slate-900 to-slate-600 dark:from-white dark:to-slate-400">
             Boss Protocol
           </span>
         </div>

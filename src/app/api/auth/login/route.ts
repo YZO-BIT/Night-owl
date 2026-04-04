@@ -1,11 +1,19 @@
 import { NextResponse } from "next/server";
 import { getDatabaseApiError, prisma } from "@/lib/prisma";
 import { createLoginSession, verifyPassword } from "@/lib/auth";
+import { ensureLeaderboardUser } from "@/lib/leaderboard";
 
 type LoginBody = {
   email?: unknown;
   password?: unknown;
 };
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs = 700): Promise<T | null> {
+  return Promise.race([
+    promise,
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs)),
+  ]);
+}
 
 export async function POST(req: Request) {
   try {
@@ -28,6 +36,11 @@ export async function POST(req: Request) {
     }
 
     await createLoginSession(user.id);
+    try {
+      await withTimeout(ensureLeaderboardUser({ userId: user.id, name: user.name, email: user.email }));
+    } catch {
+      // Best-effort leaderboard sync should not block login.
+    }
 
     return NextResponse.json({
       user: { id: user.id, email: user.email ?? null, name: user.name ?? null },

@@ -100,10 +100,12 @@ export async function POST(req: Request) {
       }
     }
 
-    return NextResponse.json(
-      { error: lastError, deepgram_status: lastStatus },
-      { status: 502 }
-    );
+    const transientDecodeFailure = /corrupt|unsupported|failed to process audio/i.test(String(lastError));
+    if (transientDecodeFailure) {
+      return NextResponse.json({ transcript: "", warning: "transient_decode_failure", deepgram_status: lastStatus });
+    }
+
+    return NextResponse.json({ error: lastError, deepgram_status: lastStatus }, { status: 502 });
   } catch (error: unknown) {
     if (error instanceof Error && error.name === "AbortError") {
       return NextResponse.json({ error: "Deepgram STT timed out" }, { status: 504 });

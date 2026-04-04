@@ -193,7 +193,7 @@ export async function POST(req: Request) {
 
       await prisma.interviewSession.update({
         where: { id: sessionId },
-        data: { messages: nextMessages },
+        data: { messages: nextMessages as any },
       });
 
       return NextResponse.json({ ok: true, question_count: questions.length, ...pyData });

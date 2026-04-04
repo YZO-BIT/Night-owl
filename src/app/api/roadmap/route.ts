@@ -148,31 +148,35 @@ export async function POST(req: Request) {
       "Constraints:",
       `- Output EXACTLY ${targetCount} items.`,
       "- Each item must be ONE line.",
-      "- Format: N. <Short stage title>: <what to study + tiny practice task>",
-      "- Keep titles short (3-7 words).",
+      "- Format: N. <Descriptive Topic Title>: <detailed objective on what specifically to study and a practice task>",
+      "- NEVER use the word 'Stage' or 'Step' in the title itself. Make titles specific to the topic.",
+      "- Keep titles short (3-7 words) but highly descriptive.",
+      "- Make the objective detailed (at least 1-2 sentences).",
       "- Stages 1-10 should be foundational, 11-20 applied, 21-30 advanced.",
-      "- Difficulty and pace must match selected level.",
-      "- Each stage must be unique and non-repeating.",
+      "- Each item must be unique and non-repeating.",
       "- Do NOT mention any other language/topic.",
       "Output:",
     ]
       .filter(Boolean)
       .join("\n");
     
-    const generateRes = await fetch("http://127.0.0.1:8000/api/generate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt })
-    });
+    let roadmapText = "";
+    try {
+      const generateRes = await fetch("http://127.0.0.1:8000/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt })
+      });
 
-    if (!generateRes.ok) {
-        throw new Error("Python backend generation failed");
+      if (generateRes.ok) {
+        const generateData: { generated_text?: unknown } = await generateRes.json().catch(() => ({}));
+        roadmapText = typeof generateData.generated_text === "string" ? generateData.generated_text : "";
+      } else {
+        console.warn("Python backend returned error, using fallback roadmap.");
+      }
+    } catch (apiError) {
+      console.warn("Could not reach Python backend (is it running?), using fallback roadmap.", apiError);
     }
-
-    const generateData: { generated_text?: unknown } = await generateRes
-      .json()
-      .catch(() => ({}));
-    const roadmapText = typeof generateData.generated_text === "string" ? generateData.generated_text : "";
     const lines = roadmapText
       .split(/\r?\n/)
       .map((l) => l.trim())
@@ -198,11 +202,39 @@ export async function POST(req: Request) {
 
     const stages: RoadmapStage[] = uniqueLines.slice(0, targetCount).map((line: string, i: number) => {
       const stageNumber = stageNumbers[i] || i + 1;
-      const cleaned = line.replace(/^\d+\.\s*/, "");
-      // Try to split `Title: objectives...` (fallback to whole line as title)
-      const parts = cleaned.split(/\s*[:\-–—]\s*/, 2);
-      const title = (parts[0] || cleaned).trim();
-      const objectives = (parts[1] || "Core concepts and practice").trim();
+      let cleaned = line.replace(/^\d+[\.\):-]?\s*/, "");
+      
+      // Separate by first colon or hyphen
+      const separatorMatch = cleaned.match(/[:\-–—]/);
+      let title = cleaned;
+      let objectives = "Core concepts and practice";
+
+      if (separatorMatch && separatorMatch.index !== undefined) {
+        title = cleaned.slice(0, separatorMatch.index).trim();
+        objectives = cleaned.slice(separatorMatch.index + 1).trim() || objectives;
+      }
+
+      // If the model ignored instructions and returned "Stage X" as the title, try to salvage it
+      if (title.toLowerCase().startsWith("stage") && objectives.length > 5) {
+        const innerMatch = objectives.match(/[:\-–—]/);
+        if (innerMatch && innerMatch.index !== undefined) {
+           title = objectives.slice(0, innerMatch.index).trim();
+           objectives = objectives.slice(innerMatch.index + 1).trim();
+        } else {
+           // Swap: title absorbs first words of objective, if needed
+           title = objectives.split(" ").slice(0, 5).join(" ");
+        }
+      }
+
+      // Clean up leading numbers or 'Stage' words that might have leaked into the 'new' title
+      title = title.replace(/^(Stage|Step)\s*\d*\s*[:\-–—]?\s*/i, "");
+      title = title.replace(/^\d+[\.\):-]?\s*/, "");
+      title = title.trim();
+      
+      if (!title || title.length < 2) {
+          title = `Core Concepts ${stageNumber}`;
+      }
+
       return {
         id: `stage-${stageNumber}`,
         title,

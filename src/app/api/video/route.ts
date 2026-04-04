@@ -18,6 +18,7 @@ function isYouTubeUrl(url: string) {
     url.includes("m.youtube.com/") ||
     url.includes("youtube.com/embed/") ||
     url.includes("youtube.com/live/") ||
+    url.includes("youtube.com/playlist") ||
     url.includes("youtube-nocookie.com/")
   );
 }
@@ -38,11 +39,15 @@ function toYouTubeEmbed(url: string): string | null {
       u.hostname === "youtube-nocookie.com" ||
       u.hostname.endsWith(".youtube-nocookie.com");
 
-    // youtube.com/watch?v=<id>
     if (isYouTubeHost) {
       if (u.pathname === "/watch") {
         const id = u.searchParams.get("v")?.trim();
         return id ? `https://www.youtube.com/embed/${id}` : null;
+      }
+      
+      if (u.pathname === "/playlist") {
+        const list = u.searchParams.get("list")?.trim();
+        return list ? `https://www.youtube.com/embed/videoseries?list=${list}` : null;
       }
 
       // youtube.com/embed/<id>
@@ -119,41 +124,34 @@ export async function POST(req: Request) {
     if (results.length === 0) {
       const query = `${stageTitle || topic} tutorial video`;
 
-      const ac = new AbortController();
-      const timeout = setTimeout(() => ac.abort(), 12000);
-      const pyRes = await fetch("http://127.0.0.1:8000/api/search", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query }),
-        signal: ac.signal,
-      });
-      clearTimeout(timeout);
+      try {
+        const ac = new AbortController();
+        const timeout = setTimeout(() => ac.abort(), 12000);
+        const pyRes = await fetch("http://127.0.0.1:8000/api/search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query: `${query} youtube` }),
+          signal: ac.signal,
+        });
+        clearTimeout(timeout);
 
-      const pyData: unknown = await pyRes.json().catch(() => null);
-      if (!pyRes.ok) {
-        const detail = isRecord(pyData)
-          ? typeof pyData.detail === "string"
-            ? pyData.detail
-            : typeof pyData.error === "string"
-              ? pyData.error
-              : ""
-          : "";
-        const suffix = detail ? ` (${detail})` : "";
-        return NextResponse.json(
-          { error: `Video search backend error${suffix}` },
-          { status: 502 }
-        );
-      }
+        const pyData: unknown = await pyRes.json().catch(() => null);
+        if (pyRes.ok) {
+          // python returns { results: <tavilyResponse> }
+          const tavilyPayload = isRecord(pyData) ? pyData.results : null;
 
-      // python returns { results: <tavilyResponse> }
-      const tavilyPayload = isRecord(pyData) ? pyData.results : null;
-
-      if (isRecord(tavilyPayload) && Array.isArray(tavilyPayload.results)) {
-        results = tavilyPayload.results as TavilyResult[];
-      } else if (Array.isArray(tavilyPayload)) {
-        results = tavilyPayload as TavilyResult[];
-      } else if (isRecord(pyData) && Array.isArray(pyData.results)) {
-        results = pyData.results as TavilyResult[];
+          if (isRecord(tavilyPayload) && Array.isArray(tavilyPayload.results)) {
+            results = tavilyPayload.results as TavilyResult[];
+          } else if (Array.isArray(tavilyPayload)) {
+            results = tavilyPayload as TavilyResult[];
+          } else if (isRecord(pyData) && Array.isArray(pyData.results)) {
+            results = pyData.results as TavilyResult[];
+          }
+        } else {
+           console.warn("Python video search backend returned non-ok status.");
+        }
+      } catch (err) {
+        console.warn("Python backend offline for video search, returning empty list.");
       }
     }
 
@@ -168,13 +166,13 @@ export async function POST(req: Request) {
       const source: VideoHit["source"] = embedUrl ? "youtube" : "web";
 
       hits.push({ title, url, embedUrl, source });
-      if (hits.length >= 5) break;
+      if (hits.length >= 10) break;
     }
 
     // Prefer YouTube embeds first
     hits.sort((a, b) => Number(Boolean(b.embedUrl)) - Number(Boolean(a.embedUrl)));
 
-    return NextResponse.json({ videos: hits.slice(0, 1) });
+    return NextResponse.json({ videos: hits.slice(0, 5) });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });
